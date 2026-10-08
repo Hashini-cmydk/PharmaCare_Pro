@@ -1,0 +1,8 @@
+import {Router} from 'express'; import Sale from '../models/Sale.js'; import Medicine from '../models/Medicine.js'; import AuditLog from '../models/AuditLog.js'; import {auth,roles} from '../middleware/auth.js';
+const r=Router();
+r.get('/summary',auth,roles('OWNER','ADMIN'),async(req,res)=>{const start=new Date();start.setHours(0,0,0,0);const [sales,medicines,low,expiry]=await Promise.all([Sale.find({createdAt:{$gte:start}}),Medicine.countDocuments({active:true}),Medicine.countDocuments({active:true,$expr:{$lte:['$quantity','$reorderLevel']}}),Medicine.countDocuments({active:true,expiryDate:{$lte:new Date(Date.now()+30*864e5)}})]);res.json({todaySales:sales.reduce((a,s)=>a+s.total,0),todayTransactions:sales.length,medicines,low,expiry});});
+r.get('/sales',auth,roles('OWNER','ADMIN'),async(req,res)=>{const match={};if(req.query.from||req.query.to){match.createdAt={};if(req.query.from)match.createdAt.$gte=new Date(req.query.from);if(req.query.to)match.createdAt.$lte=new Date(req.query.to+'T23:59:59.999Z')}const rows=await Sale.aggregate([{$match:match},{$group:{_id:{$dateToString:{format:'%Y-%m-%d',date:'$createdAt'}},revenue:{$sum:'$total'},transactions:{$sum:1}}},{$sort:{_id:1}}]);res.json(rows)});
+r.get('/stock',auth,roles('OWNER','ADMIN'),async(req,res)=>res.json(await Medicine.find({active:true}).populate('supplier','name').sort({quantity:1})));
+r.get('/expiry',auth,roles('OWNER','ADMIN'),async(req,res)=>res.json(await Medicine.find({active:true,expiryDate:{$lte:new Date(Date.now()+90*864e5)}}).populate('supplier','name').sort({expiryDate:1})));
+r.get('/audit',auth,roles('OWNER','ADMIN'),async(req,res)=>res.json(await AuditLog.find().populate('user','name role').sort({createdAt:-1}).limit(200)));
+export default r;
